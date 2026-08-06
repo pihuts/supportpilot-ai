@@ -2,7 +2,7 @@
 
 An n8n workflow that turns a raw support message into a classified, prioritized, answered, and tracked ticket.
 
-![SupportPilot AI workflow](screenshots/SupportPilot%20AI.png)
+![SupportPilot AI opened in n8n](screenshots/n8n-editor.png)
 
 ## What it does
 
