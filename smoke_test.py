@@ -66,6 +66,14 @@ class WorkflowSmoke(unittest.TestCase):
         if ROOT.name == "supportpilot-ai":
             valid = FIXTURE["valid"]
             self.assertEqual(run_code("Validate Input", valid)["out"][0]["json"]["ticketId"], "TKT-ticket_123")
+            columns = NODES["Log Ticket to Google Sheets"]["parameters"]["columns"]["value"]
+            self.assertIn("Escalation pending", columns["Status"])
+            self.assertEqual(columns["Escalated"], "={{ false }}")
+            sent = NODES["Mark escalation sent"]["parameters"]["columns"]["value"]
+            self.assertEqual(sent["Status"], "=Escalated")
+            self.assertEqual(sent["Escalated"], "={{ true }}")
+            self.assertEqual(DOC["connections"]["Audit notify support team"]["main"][0][0]["node"], "Restore ticket after email")
+            self.assertEqual(DOC["connections"]["Restore ticket after email"]["main"][0][0]["node"], "Mark escalation sent")
         else:
             valid = FIXTURE["valid"]
             self.assertEqual(run_code("Validate Input", valid)["out"][0]["json"]["meetingId"], "MTG-meeting_123")

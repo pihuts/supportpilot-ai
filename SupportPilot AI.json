@@ -151,8 +151,8 @@
             "Confidence": "={{ $json.confidence }}",
             "Summary": "={{ $json.summary }}",
             "Suggested Reply": "={{ $json.suggested_reply }}",
-            "Escalated": "={{ $json.escalate }}",
-            "Status": "=New",
+            "Escalated": "={{ false }}",
+            "Status": "={{ $json.escalate ? 'Escalation pending' : 'New' }}",
             "Run ID": "={{ $json.runId }}"
           },
           "matchingColumns": [
@@ -217,7 +217,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        4560,
+        5040,
         0
       ],
       "parameters": {
@@ -278,7 +278,7 @@
       "typeVersion": 2,
       "position": [
         1680,
-        0
+        -300
       ],
       "parameters": {
         "respondWith": "json",
@@ -327,7 +327,7 @@
       "typeVersion": 2,
       "position": [
         960,
-        0
+        -300
       ],
       "parameters": {
         "respondWith": "json",
@@ -422,7 +422,7 @@
       "typeVersion": 2,
       "position": [
         2400,
-        0
+        -300
       ],
       "parameters": {
         "respondWith": "json",
@@ -470,6 +470,65 @@
       "parameters": {
         "jsCode": "console.log(JSON.stringify({timestamp:new Date().toISOString(), runId:String($execution.id), result:'sent', action:'Notify Support Team'})); return $input.all();"
       }
+    },
+    {
+      "id": "support-restore-after-email",
+      "name": "Restore ticket after email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json: $('Normalize Output').item.json}];"
+      }
+    },
+    {
+      "id": "support-mark-escalated",
+      "name": "Mark escalation sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SUPPORT_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tickets",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticket ID": "={{ $json.ticketId }}",
+            "Date": "={{ $json.receivedAt }}",
+            "Customer": "={{ $json.customerName }}",
+            "Email": "={{ $json.email }}",
+            "Channel": "={{ $json.channel }}",
+            "Category": "={{ $json.category }}",
+            "Priority": "={{ $json.priority }}",
+            "Sentiment": "={{ $json.sentiment }}",
+            "Confidence": "={{ $json.confidence }}",
+            "Summary": "={{ $json.summary }}",
+            "Suggested Reply": "={{ $json.suggested_reply }}",
+            "Escalated": "={{ true }}",
+            "Status": "=Escalated",
+            "Run ID": "={{ $json.runId }}"
+          },
+          "matchingColumns": [
+            "Ticket ID"
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.5
     }
   ],
   "connections": {
@@ -689,6 +748,28 @@
       ]
     },
     "Audit notify support team": {
+      "main": [
+        [
+          {
+            "node": "Restore ticket after email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore ticket after email": {
+      "main": [
+        [
+          {
+            "node": "Mark escalation sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark escalation sent": {
       "main": [
         [
           {

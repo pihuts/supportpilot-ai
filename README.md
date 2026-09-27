@@ -1,56 +1,53 @@
 # SupportPilot AI
 
-When a support webhook receives a message, triage it, record a ticket, alert a human when needed, and respond.
+When an authenticated support webhook receives a customer message, save one ticket, alert a human if needed, return a suggested reply, and stop.
 
-## Production operations
+![SupportPilot workflow in n8n](screenshots/n8n-overview.png)
 
-**Purpose:** When a support webhook receives a message, triage it, record a ticket, alert a human when needed, and respond.
+These images show a local n8n editor. Red icons mean credentials still need to be connected on your own instance.
 
-- **Scope:** Webhook payload, Tickets tab, OpenAI, and configured support inbox. No refund, account change, or direct customer email.
-- **Success:** One Tickets row keyed by Ticket ID and a JSON status; escalation email for high risk tickets.
-- **Inputs:** Webhook fields; SUPPORT_COMPANY_INFO policy text and company name from environment; OpenAI classification.
-- **Philippine use:** Replies follow the customer's English or Filipino language. Escalate refunds, payment disputes, legal issues, and account security; AI replies are suggestions only.
+[Webhook and checks](screenshots/n8n-start.png) · [Ticket and response steps](screenshots/n8n-finish.png)
 
-### Configure and run
+## What it does
 
-1. Import this workflow and `Failure Alert.json` into n8n. Connect OpenAI, Google Sheets and Gmail credentials. For a webhook workflow, also connect a Header Auth credential and configure the caller to send it. Use a dedicated Google account with access only to the named spreadsheet and mail account.
-2. Create the tabs and exact headers: Tickets: Ticket ID, Run ID, Date, Customer, Email, Channel, Category, Priority, Sentiment, Confidence, Summary, Suggested Reply, Escalated, Status.
-3. Set required environment values: `SUPPORT_SHEET_ID, SUPPORT_EMAIL_TO, SUPPORT_COMPANY_NAME, SUPPORT_COMPANY_INFO`. For CareerCompass, use `JOBHUNT_SEARCH_URL=https://hn.algolia.com/api/v1/search_by_date?query=%22Ask%20HN%3A%20Who%20is%20hiring%22&tags=story&hitsPerPage=30` and `JOBHUNT_ITEM_API_BASE=https://hacker-news.firebaseio.com/v0/item` as starting URLs. Set `SUPPORT_ALERT_EMAIL_TO` to the operator's real inbox.
-4. Optional config: SUPPORT_ESCALATE_BELOW=0.6. Set `SUPPORT_ENABLED=true` to enable runs. Dry run is on unless `SUPPORT_DRY_RUN=false` is explicitly set. The kill switch is `SUPPORT_ENABLED=false`; deactivate the workflow too for an immediate stop.
-   On self-hosted n8n, set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` or Code nodes cannot read these values. Run these workflows on a dedicated instance; keep API secrets in n8n credentials and expose only workflow config through environment values.
-   Set `N8N_CONCURRENCY_PRODUCTION_LIMIT=1` on that dedicated instance to serialize Sheet lookups and writes.
-5. Open this workflow's n8n Settings and select the imported Failure Alert workflow as **Error Workflow**. Send its Gmail node from an account the operator monitors. Keep execution retention appropriate for sensitive data.
-6. Run `python smoke_test.py` after every edit; GitHub Actions runs it on push and pull request. With dry run on, run the n8n workflow once and confirm no Google/AI/Gmail nodes executed. Then use a test sheet, test inbox, and representative input before setting `SUPPORT_DRY_RUN=false`.
+The caller sends a request_id and message to the supportpilot-triage webhook. The workflow checks the input, asks OpenAI to classify it and suggest a reply, and saves a Tickets row. It emails the support team for sensitive or low-confidence cases. Replies can follow the customer's English or Filipino, but staff must review them. Refunds, payment disputes, legal issues, and account security go to a human. This workflow never issues refunds, changes accounts, or emails a customer.
 
-Event: authenticated POST to supportpilot-triage. Owner: customer support. If the instance is offline, scheduled events are missed and webhook callers must retry with the same request ID. Manually replay missed scheduled runs after recovery. Review this workflow each quarter; retire it when its owner, input source, or business process no longer exists.
+Success means a Tickets row keyed by Ticket ID and a JSON response. An escalated ticket also has a Gmail notice in its n8n execution. Customer support owns this workflow.
 
-### Reliability, audit, and failure response
+## Set up
 
-- **Reruns:** Caller supplies stable request_id (8–100 letters, digits, underscores or hyphens). Reusing it returns already_recorded before AI and email. Google Sheets lookup plus upsert is sequential idempotency; Sheets has no atomic uniqueness constraint, so concurrent runs can still duplicate rows. Keep one active run per workflow and reconcile after interruptions.
-- **Partial failure:** If escalation email fails after the ticket row is written, the next POST reports already_recorded; the operator must resend from the saved ticket. Never blindly retry a Gmail node after a timeout.
-- **Timeouts/retries:** The workflow has a 300 second execution limit; HTTP calls have 15 second timeouts and three attempts with a two second wait. AI calls use a 30 second timeout. n8n's generic retry also retries some permanent HTTP errors, so disable that per node if your source returns persistent 4xx responses. Writes are not automatically retried because an ambiguous timeout can follow a successful write.
-- **Audit:** n8n execution history and JSON console logs include timestamp, execution ID, and result without raw customer content. Sheet rows carry business keys and run IDs where available. Inspect failed executions and the `Failure Alert` email. The alert workflow depends on n8n being up; use an external uptime monitor for instance outages.
-- **Security:** Store OAuth/API secrets in n8n credentials, not JSON or git. Protect webhook URLs with authenticated ingress and rate limits. Restrict who can view execution history, Sheets, and Gmail. Do not feed sensitive customer or financial data to OpenAI without your organization's approval and retention policy.
-- **Exit status/health:** `python smoke_test.py` exits 0 on pass and nonzero on failure. In n8n, the execution status is the scheduler signal; monitor failed and missing scheduled executions. The latest timestamp in the relevant sheet is the simple status indicator.
+1. On self-hosted n8n, import SupportPilot AI.json and Failure Alert.json. Connect OpenAI, Google Sheets, Gmail, and a Header Auth credential. Require the caller to send that header over HTTPS. Restrict the Google account to the support sheet and mailbox.
+2. Make a Tickets tab with these exact headers: Ticket ID, Run ID, Date, Customer, Email, Channel, Category, Priority, Sentiment, Confidence, Summary, Suggested Reply, Escalated, Status.
+3. Set SUPPORT_SHEET_ID, SUPPORT_EMAIL_TO, SUPPORT_COMPANY_NAME, SUPPORT_COMPANY_INFO, and SUPPORT_ALERT_EMAIL_TO in the server environment. SUPPORT_COMPANY_INFO must be approved support policy text. Optional: SUPPORT_ESCALATE_BELOW=0.6. Keep API keys in n8n credentials. Set N8N_BLOCK_ENV_ACCESS_IN_NODE=false on this dedicated instance.
+4. In the main workflow's n8n Settings, choose Failure Alert as its Error Workflow. Connect its Gmail node and test delivery to the support operator. Use an ingress rate limit for the webhook. Set N8N_CONCURRENCY_PRODUCTION_LIMIT=1 to reduce overlapping production runs; this does not serialize every manual run.
 
-### Go-live preflight
+SUPPORT_ENABLED=true allows a run. Dry run is on unless SUPPORT_DRY_RUN=false. Dry run stops before Sheets, OpenAI, and Gmail. Set SUPPORT_ENABLED=false and deactivate the workflow to stop new requests.
 
-- [ ] Operator and failure inbox assigned; Error Workflow selected and alert tested.
-- [ ] Dry run checked on test input; no live side effect occurred.
-- [ ] Required variables and least-privilege credentials configured; no secrets in the export.
-- [ ] Same request/lead/invoice rerun checked in a test sheet; no second mail or draft.
-- [ ] Network timeout and failure alert checked; partial-write recovery rehearsed.
-- [ ] `SUPPORT_ENABLED=false` demonstrated as the kill switch.
+## Test before using real messages
 
-**Production gate:** Offline smoke tests do not prove n8n import compatibility or live Google/Gmail/OpenAI behavior. Complete the test-account run above and review the Sheets concurrency and ambiguous-email limits before activating on real data.
+1. Run python smoke_test.py after edits. It exits nonzero on failure. GitHub Actions runs it on pushes and pull requests.
+2. Enable the flag and leave dry run on. POST a sample request with Header Auth; confirm dry_run and no external calls.
+3. Use a test sheet and inbox, set SUPPORT_DRY_RUN=false, and POST a sample with a stable request_id. Check the ticket and response. POST it again; it should say already_recorded, with no second ticket or notice.
+4. Test an empty message, a payment dispute in Filipino, and Failure Alert delivery.
 
-Test call after connecting Header Auth (use the token and URL from your own instance):
+Example request after you set your own URL and Header Auth token:
 
-```bash
-curl -X POST https://YOUR-N8N/webhook/supportpilot-triage \
-  -H 'Content-Type: application/json' \
-  -H 'X-Workflow-Key: YOUR-HEADER-AUTH-TOKEN' \
-  -d '{"request_id": "ticket_123", "message": "Kumusta, doble ang charge ko."}'
-```
+    curl -X POST https://YOUR-N8N/webhook/supportpilot-triage -H 'Content-Type: application/json' -H 'X-Workflow-Key: YOUR-TOKEN' -d '{"request_id":"ticket_123","message":"Kumusta, doble ang charge ko."}'
 
-These exports target self-hosted n8n. n8n Cloud may block `$env` access inside Code nodes; verify compatibility before importing there.
+## If something fails
+
+n8n logs the time, run ID, and result; Failure Alert emails SUPPORT_ALERT_EMAIL_TO. Tickets that need a team notice start as Escalation pending and change to Escalated only after Gmail succeeds. If the notice or final sheet update fails, the same request_id will return already_recorded. Check the execution and Gmail Sent folder, then alert staff or update the row by hand. A Gmail timeout may still have sent the message. Do not replay the whole request to force an email.
+
+The workflow has a 300 second run limit and a 30 second AI timeout. Sheet and Gmail writes are not retried after an uncertain result. Sheets lookup and upsert avoid ordinary rerun duplicates but have no atomic uniqueness rule; concurrent requests can duplicate rows. If n8n is offline, the caller must retry later with the same request_id. Monitor the instance from outside because its own alert cannot report an outage.
+
+Review the support policy, owner, inbox, and escalation rules every quarter. Retire the workflow when the process ends. Test with real account connections before routing customers to it.
+
+
+## Go-live check
+
+- [ ] Dry run was tested; it touched no live account.
+- [ ] Secrets are in n8n credentials, and required environment settings are present.
+- [ ] The same item was run twice in a test account with no duplicate side effect.
+- [ ] Timeouts and retry limits were checked; uncertain Gmail or Sheets writes are reviewed by a person.
+- [ ] Failure Alert reaches the named operator, and an outside monitor covers n8n outages.
+- [ ] The operator knows how to set SUPPORT_ENABLED=false and deactivate the workflow.\n
