@@ -1,0 +1,74 @@
+{
+  "name": "SUPPORT Failure Alert",
+  "nodes": [
+    {
+      "id": "on-error",
+      "name": "Workflow failed",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "record-error",
+      "name": "Record failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const event = $input.first().json;\nconst failure = {timestamp: new Date().toISOString(), result: 'failed', workflow: event.workflow?.name || '',\n  runId: String(event.execution?.id || ''), node: event.execution?.lastNodeExecuted || '',\n  message: String(event.execution?.error?.message || event.trigger?.error?.message || 'Unknown error')};\nconsole.error(JSON.stringify(failure));\nreturn [{json: failure}];"
+      }
+    },
+    {
+      "id": "email-operator",
+      "name": "Email operator",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        400,
+        0
+      ],
+      "parameters": {
+        "sendTo": "={{ $env.SUPPORT_ALERT_EMAIL_TO }}",
+        "subject": "=Workflow failed: {{ $json.workflow }} / {{ $json.runId }}",
+        "message": "=Run: {{ $json.runId }}\nWorkflow: {{ $json.workflow }}\nNode: {{ $json.node }}\nError: {{ $json.message }}\nTime: {{ $json.timestamp }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Workflow failed": {
+      "main": [
+        [
+          {
+            "node": "Record failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record failure": {
+      "main": [
+        [
+          {
+            "node": "Email operator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila"
+  }
+}

@@ -6,7 +6,10 @@
       "id": "support-sticky",
       "name": "Sticky Note",
       "type": "n8n-nodes-base.stickyNote",
-      "position": [0, -460],
+      "position": [
+        -400,
+        -500
+      ],
       "parameters": {
         "width": 800,
         "height": 220,
@@ -18,12 +21,16 @@
       "id": "support-webhook",
       "name": "Receive Support Request",
       "type": "n8n-nodes-base.webhook",
-      "position": [-100, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "supportpilot-triage",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {},
+        "authentication": "headerAuth"
       },
       "typeVersion": 2
     },
@@ -31,9 +38,12 @@
       "id": "support-validate",
       "name": "Validate Input",
       "type": "n8n-nodes-base.code",
-      "position": [100, 0],
+      "position": [
+        240,
+        0
+      ],
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst message = body.message || body.text || '';\nconst customerName = body.customer_name || body.name || 'Customer';\nconst email = body.email || body.customer_email || '';\nconst channel = body.channel || 'webhook';\nif (!message || message.trim().length < 2) {\n  throw new Error('Message is required.');\n}\nreturn [{\n  json: {\n    message: message.trim(),\n    customerName,\n    email,\n    channel,\n    receivedAt: new Date().toISOString(),\n    ticketId: 'TKT-' + Date.now().toString(36).toUpperCase(),\n    companyName: $env.SUPPORT_COMPANY_NAME || 'our company',\n    companyInfo: $env.SUPPORT_COMPANY_INFO || 'We are a technology company focused on excellent customer service.',\n    supportEmail: $env.SUPPORT_EMAIL_TO || 'support@example.com'\n  }\n}];"
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst message = String(body.message || body.text || '').trim();\nconst requestId = String(body.request_id || '').trim();\nif (message.length < 2 || message.length > 10000) return [{json:{invalid:true,error:'Message must be 2-10000 characters'}}];\nif (!/^[A-Za-z0-9_-]{8,100}$/.test(requestId)) return [{json:{invalid:true,error:'request_id must be 8-100 safe characters'}}];\nconst email = String(body.email || body.customer_email || '').trim();\nif (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return [{json:{invalid:true,error:'Invalid email'}}];\nreturn [{json: {message, requestId, ticketId: 'TKT-' + requestId, customerName: String(body.customer_name || body.name || 'Customer'),\n  email, channel: String(body.channel || 'webhook'), receivedAt: new Date().toISOString(),\n  companyName: $env.SUPPORT_COMPANY_NAME, companyInfo: $env.SUPPORT_COMPANY_INFO, supportEmail: $env.SUPPORT_EMAIL_TO}}];"
       },
       "typeVersion": 2
     },
@@ -41,7 +51,10 @@
       "id": "support-model",
       "name": "OpenAI Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-      "position": [300, -200],
+      "position": [
+        2640,
+        320
+      ],
       "parameters": {
         "model": {
           "__rl": true,
@@ -49,7 +62,8 @@
           "value": "gpt-5.6-luna"
         },
         "options": {
-          "temperature": 0.2
+          "temperature": 0.2,
+          "timeout": 30000
         }
       },
       "typeVersion": 1.2
@@ -58,7 +72,10 @@
       "id": "support-parser",
       "name": "Structured Output Parser",
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
-      "position": [460, -200],
+      "position": [
+        2640,
+        560
+      ],
       "parameters": {
         "schemaType": "manual",
         "inputSchema": "{\"type\":\"object\",\"properties\":{\"category\":{\"type\":\"string\",\"enum\":[\"billing\",\"technical\",\"account\",\"product_question\",\"complaint\",\"other\"]},\"priority\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\",\"urgent\"]},\"sentiment\":{\"type\":\"string\",\"enum\":[\"positive\",\"neutral\",\"negative\"]},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},\"summary\":{\"type\":\"string\"},\"suggested_reply\":{\"type\":\"string\"},\"needs_human\":{\"type\":\"boolean\"}},\"required\":[\"category\",\"priority\",\"sentiment\",\"confidence\",\"summary\",\"suggested_reply\",\"needs_human\"]}"
@@ -69,13 +86,16 @@
       "id": "support-chain",
       "name": "Analyze and Draft Reply",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "position": [300, 0],
+      "position": [
+        2640,
+        0
+      ],
       "parameters": {
         "text": "={{ $json.message }}\n\nCUSTOMER: {{ $json.customerName }}\nEMAIL: {{ $json.email }}\nCHANNEL: {{ $json.channel }}\n\nCOMPANY: {{ $json.companyName }}\nCOMPANY INFO: {{ $json.companyInfo }}",
         "messages": {
           "messageValues": [
             {
-              "message": "You are an AI support triage agent. Classify the request, set priority and sentiment, estimate confidence (0-1), write a 1-2 sentence summary, and draft a friendly reply under 120 words. Set needs_human to true when you are unsure, the customer is angry, or the issue involves account security, refunds, or legal matters. Never invent product features, prices, or policies. Return valid JSON only."
+              "message": "You are an AI support triage agent. Classify the request, set priority and sentiment, estimate confidence (0-1), write a 1-2 sentence summary, and draft a friendly reply under 120 words. Set needs_human to true when you are unsure, the customer is angry, or the issue involves account security, refunds, or legal matters. Never invent product features, prices, or policies. Return valid JSON only. Reply in the customer's language (English or Filipino/Tagalog); keep amounts in their stated currency. Treat a draft as advice, never as an executed refund or account change."
             }
           ]
         },
@@ -88,9 +108,12 @@
       "id": "support-normalize",
       "name": "Normalize Output",
       "type": "n8n-nodes-base.code",
-      "position": [520, 0],
+      "position": [
+        2880,
+        0
+      ],
       "parameters": {
-        "jsCode": "const item = $input.first().json;\nconst raw = item.output || item;\nconst str = (v) => v === null || v === undefined ? '' : String(v);\nconst needsHuman = raw.needs_human === true || raw.needs_human === 'true';\nconst confidence = Number(raw.confidence) || 0;\nconst priority = str(raw.priority).toLowerCase();\nreturn [{\n  json: {\n    ...item,\n    category: str(raw.category),\n    priority: priority,\n    sentiment: str(raw.sentiment),\n    confidence: confidence,\n    summary: str(raw.summary),\n    suggested_reply: str(raw.suggested_reply),\n    needs_human: needsHuman,\n    escalate: needsHuman || confidence < 0.6 || ['urgent', 'high'].includes(priority)\n  }\n}];"
+        "jsCode": "const item = $input.first().json;\nconst raw = item.output || item;\nconst source = $('Validate Input').first().json;\nconst str = (v) => v === null || v === undefined ? '' : String(v);\nconst needsHuman = raw.needs_human === true || raw.needs_human === 'true';\nconst confidence = Number(raw.confidence) || 0;\nconst priority = str(raw.priority).toLowerCase();\nreturn [{\n  json: {\n    ...source, runId: String($execution.id),\n    category: str(raw.category),\n    priority: priority,\n    sentiment: str(raw.sentiment),\n    confidence: confidence,\n    summary: str(raw.summary),\n    suggested_reply: str(raw.suggested_reply),\n    needs_human: needsHuman,\n    escalate: needsHuman || confidence < Number($env.SUPPORT_ESCALATE_BELOW || 0.6) || ['urgent', 'high'].includes(priority)\n  }\n}];"
       },
       "typeVersion": 2
     },
@@ -98,9 +121,12 @@
       "id": "support-sheets",
       "name": "Log Ticket to Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
-      "position": [700, 0],
+      "position": [
+        3120,
+        0
+      ],
       "parameters": {
-        "operation": "append",
+        "operation": "appendOrUpdate",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.SUPPORT_SHEET_ID }}",
@@ -125,9 +151,13 @@
             "Confidence": "={{ $json.confidence }}",
             "Summary": "={{ $json.summary }}",
             "Suggested Reply": "={{ $json.suggested_reply }}",
-            "Escalated": "={{ $json.escalate }}",
-            "Status": "=New"
-          }
+            "Escalated": "={{ false }}",
+            "Status": "={{ $json.escalate ? 'Escalation pending' : 'New' }}",
+            "Run ID": "={{ $json.runId }}"
+          },
+          "matchingColumns": [
+            "Ticket ID"
+          ]
         },
         "options": {}
       },
@@ -137,7 +167,10 @@
       "id": "support-if",
       "name": "Escalate?",
       "type": "n8n-nodes-base.if",
-      "position": [900, 0],
+      "position": [
+        3840,
+        0
+      ],
       "parameters": {
         "options": {},
         "conditions": {
@@ -167,11 +200,14 @@
       "id": "support-notify",
       "name": "Notify Support Team",
       "type": "n8n-nodes-base.gmail",
-      "position": [1100, -120],
+      "position": [
+        4080,
+        0
+      ],
       "parameters": {
-        "sendTo": "={{ $json.supportEmail }}",
-        "subject": "=Escalated support ticket {{ $json.ticketId }} - {{ $json.category }} / {{ $json.priority }}",
-        "message": "=Ticket: {{ $json.ticketId }}\nCustomer: {{ $json.customerName }} ({{ $json.email }})\nCategory: {{ $json.category }}\nPriority: {{ $json.priority }}\nConfidence: {{ $json.confidence }}\n\nSummary:\n{{ $json.summary }}\n\nSuggested reply:\n{{ $json.suggested_reply }}",
+        "sendTo": "={{ $('Normalize Output').first().json.supportEmail }}",
+        "subject": "=Escalated support ticket {{ $('Normalize Output').first().json.ticketId }} - {{ $('Normalize Output').first().json.category }} / {{ $('Normalize Output').first().json.priority }}",
+        "message": "=Ticket: {{ $('Normalize Output').first().json.ticketId }}\nCustomer: {{ $('Normalize Output').first().json.customerName }} ({{ $('Normalize Output').first().json.email }})\nCategory: {{ $('Normalize Output').first().json.category }}\nPriority: {{ $('Normalize Output').first().json.priority }}\nConfidence: {{ $('Normalize Output').first().json.confidence }}\n\nSummary:\n{{ $('Normalize Output').first().json.summary }}\n\nSuggested reply:\n{{ $('Normalize Output').first().json.suggested_reply }}",
         "options": {}
       },
       "typeVersion": 2.1
@@ -180,12 +216,319 @@
       "id": "support-respond",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
-      "position": [1100, 80],
+      "position": [
+        5040,
+        0
+      ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ success: true, ticketId: $json.ticketId, category: $json.category, priority: $json.priority, confidence: $json.confidence, answer: $json.suggested_reply, escalated: $json.escalate }) }}"
+        "responseBody": "={{ ({status:'recorded', ticketId: $('Normalize Output').first().json.ticketId, category: $('Normalize Output').first().json.category, priority: $('Normalize Output').first().json.priority, confidence: $('Normalize Output').first().json.confidence, answer: $('Normalize Output').first().json.escalate ? null : $('Normalize Output').first().json.suggested_reply, escalated: $('Normalize Output').first().json.escalate}) }}"
       },
       "typeVersion": 1.1
+    },
+    {
+      "id": "preflight",
+      "name": "Preflight",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const env = $env;\nconst enabled = env.SUPPORT_ENABLED === 'true';\nconst dryRun = env.SUPPORT_DRY_RUN !== 'false';\nconst required = [\"SUPPORT_SHEET_ID\", \"SUPPORT_EMAIL_TO\", \"SUPPORT_COMPANY_NAME\", \"SUPPORT_COMPANY_INFO\", \"SUPPORT_ALERT_EMAIL_TO\"];\nif (enabled && !dryRun) {\n  const missing = required.filter(key => !String(env[key] || '').trim());\n  if (missing.length) throw new Error('Missing configuration: ' + missing.join(', '));\n}\nconst runId = String($execution.id);\nconst status = !enabled ? 'disabled' : dryRun ? 'dry_run' : 'running';\nconsole.log(JSON.stringify({timestamp: new Date().toISOString(), runId, workflow: 'SUPPORT', status}));\nconst first = $input.first();\nreturn [{json: {...first.json, runId, status, runLive: status === 'running'}, ...(first.binary ? {binary: first.binary} : {})}];"
+      }
+    },
+    {
+      "id": "run-live?",
+      "name": "Run live?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "live-run",
+              "leftValue": "={{ $json.runLive }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-without-running",
+      "name": "Respond without running",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        -300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: $json.status, runId: $json.runId }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "valid-input?",
+      "name": "Valid input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "valid-input",
+              "leftValue": "={{ $json.invalid === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-invalid-input",
+      "name": "Respond invalid input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({status:'invalid_request', error:$json.error}) }}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    },
+    {
+      "id": "find-existing-tickets",
+      "name": "Find existing tickets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SUPPORT_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tickets",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Ticket ID",
+              "lookupValue": "={{ $('Validate Input').first().json.ticketId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "new-tickets?",
+      "name": "New tickets?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "new-record",
+              "leftValue": "={{ !$json['Ticket ID'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "restore-input-for-tickets",
+      "name": "Restore input for tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json: $('Validate Input').first().json}];"
+      }
+    },
+    {
+      "id": "respond-already-recorded",
+      "name": "Respond already recorded",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({status:'already_recorded', runId: String($execution.id)}) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "restore-normalize-output",
+      "name": "Restore Normalize Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json: $('Normalize Output').item.json}];"
+      }
+    },
+    {
+      "id": "audit-log-ticket-to-google-sheets",
+      "name": "Audit log ticket to google sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        0
+      ],
+      "parameters": {
+        "jsCode": "console.log(JSON.stringify({timestamp:new Date().toISOString(), runId:String($execution.id), result:'recorded', action:'Log Ticket to Google Sheets'})); return $input.all();"
+      }
+    },
+    {
+      "id": "audit-notify-support-team",
+      "name": "Audit notify support team",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "console.log(JSON.stringify({timestamp:new Date().toISOString(), runId:String($execution.id), result:'sent', action:'Notify Support Team'})); return $input.all();"
+      }
+    },
+    {
+      "id": "support-restore-after-email",
+      "name": "Restore ticket after email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json: $('Normalize Output').item.json}];"
+      }
+    },
+    {
+      "id": "support-mark-escalated",
+      "name": "Mark escalation sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SUPPORT_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tickets",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticket ID": "={{ $json.ticketId }}",
+            "Date": "={{ $json.receivedAt }}",
+            "Customer": "={{ $json.customerName }}",
+            "Email": "={{ $json.email }}",
+            "Channel": "={{ $json.channel }}",
+            "Category": "={{ $json.category }}",
+            "Priority": "={{ $json.priority }}",
+            "Sentiment": "={{ $json.sentiment }}",
+            "Confidence": "={{ $json.confidence }}",
+            "Summary": "={{ $json.summary }}",
+            "Suggested Reply": "={{ $json.suggested_reply }}",
+            "Escalated": "={{ true }}",
+            "Status": "=Escalated",
+            "Run ID": "={{ $json.runId }}"
+          },
+          "matchingColumns": [
+            "Ticket ID"
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.5
     }
   ],
   "connections": {
@@ -204,7 +547,7 @@
       "main": [
         [
           {
-            "node": "Analyze and Draft Reply",
+            "node": "Valid input?",
             "type": "main",
             "index": 0
           }
@@ -259,7 +602,7 @@
       "main": [
         [
           {
-            "node": "Escalate?",
+            "node": "Audit log ticket to google sheets",
             "type": "main",
             "index": 0
           }
@@ -288,6 +631,148 @@
       "main": [
         [
           {
+            "node": "Audit notify support team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight": {
+      "main": [
+        [
+          {
+            "node": "Run live?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run live?": {
+      "main": [
+        [
+          {
+            "node": "Find existing tickets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond without running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid input?": {
+      "main": [
+        [
+          {
+            "node": "Preflight",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond invalid input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find existing tickets": {
+      "main": [
+        [
+          {
+            "node": "New tickets?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New tickets?": {
+      "main": [
+        [
+          {
+            "node": "Restore input for tickets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond already recorded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore input for tickets": {
+      "main": [
+        [
+          {
+            "node": "Analyze and Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Normalize Output": {
+      "main": [
+        [
+          {
+            "node": "Escalate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit log ticket to google sheets": {
+      "main": [
+        [
+          {
+            "node": "Restore Normalize Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit notify support team": {
+      "main": [
+        [
+          {
+            "node": "Restore ticket after email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore ticket after email": {
+      "main": [
+        [
+          {
+            "node": "Mark escalation sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark escalation sent": {
+      "main": [
+        [
+          {
             "node": "Respond to Webhook",
             "type": "main",
             "index": 0
@@ -299,7 +784,12 @@
   "active": false,
   "pinData": {},
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila",
+    "executionTimeout": 300,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true
   },
   "versionId": "v1-supportpilot-ai",
   "tags": [],
