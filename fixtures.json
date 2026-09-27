@@ -1,0 +1,18 @@
+{
+  "valid": {
+    "body": {
+      "request_id": "ticket_123",
+      "message": "Kumusta, doble ang charge ko.",
+      "email": "sample@example.test"
+    }
+  },
+  "empty": {
+    "body": {}
+  },
+  "already_done": {
+    "Ticket ID": "TKT-ticket_123"
+  },
+  "network_down": {
+    "error": "ECONNRESET"
+  }
+}
